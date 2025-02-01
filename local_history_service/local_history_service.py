@@ -65,6 +65,17 @@ class MessagesConsumerThread(Thread):
             """
             logging.error("MQTT wrapper ends. Terminate the program")
 
+    def run(self):
+        while True:
+            self._save_messages_to_file_and_delete_outdated_messages()
+            sleep(self.save_interval)
+
+
+    def _save_messages_to_file_and_delete_outdated_messages(self):
+        """
+        Save messages to a file and delete outdated messages.
+        """
+
 class LocalHistoryService(BusClient):
     """
     A class that listens on the Dbus, checks incoming messages,
