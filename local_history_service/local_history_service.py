@@ -8,10 +8,47 @@ from datetime import datetime, timedelta
 import argparse
 import logging
 import base64
-
 from wirepas_gateway.dbus.dbus_client import BusClient
 from wirepas_gateway import __pkg_name__
 
+
+class MessagesConsumerThread(Thread):
+    """
+    A class that consumes messages from a Queue and saves them to a file, as well as 
+    reports basic statistics to an MQTT topic.
+    """
+    def __init__(
+        self,
+        settings,
+        message_queue,
+        file_path,
+        file_prefix,
+        historical_days,
+        max_storage_size,
+        max_block_size,
+        save_interval,
+        mqtt_topic,
+    ):
+        super(MessagesConsumerThread, self).__init__()
+        self.message_queue = message_queue
+        self.file_path = file_path
+        self.file_prefix = file_prefix
+        self.current_file_index = 0
+        self.historical_days = historical_days
+        self.max_storage_size = max_storage_size
+        self.max_block_size = max_block_size
+        self.save_interval = save_interval
+        self.mqtt_topic = ""
+        self.mqtt_wrapper = None
+        if mqtt_topic != "":
+            self.mqtt_topic = mqtt_topic.format(gw_id=settings.gateway_id)
+            self.mqtt_wrapper = MQTTWrapper(
+                settings,
+                self._on_mqtt_wrapper_termination_cb,
+                self._on_connect,
+            )
+        self.mqtt_wrapper.start()
+        self.last_file_name = ""
 
 class LocalHistoryService(BusClient):
     """
@@ -44,8 +81,44 @@ class LocalHistoryService(BusClient):
         self.file_prefix = file_prefix
         self.endpoints = endpoints if endpoints else []
         self.mqtt_topic = mqtt_topic
+        self.message_queue = Queue()
         
         logging.info("Local history service started for %d days for EPs: %s", historical_days, endpoints)
+        
+        parse = ParserHelper(
+            description="Wirepas Gateway Local History service arguments",
+            version=transport_version,
+        )
+
+        parse.add_file_settings()
+        parse.add_mqtt()
+        parse.add_gateway_config()
+        parse.add_filtering_config()
+        parse.add_buffering_settings()
+        parse.add_debug_settings()
+        parse.add_deprecated_args()
+
+        settings = parse.settings()
+        
+        self.queue_manager = MessagesConsumerThread(
+            settings=settings,
+            message_queue=self.message_queue,
+            file_path=file_path,
+            file_prefix=file_prefix,
+            historical_days=historical_days,
+            max_block_size=max_storage_size,
+            max_storage_size=max_block_size,
+            save_interval=save_interval,
+            mqtt_topic=self.mqtt_topic,
+        )
+        self.queue_manager.start()
+        logging.info(
+            "Local history service started for %d days for EPs: %s with max file size %d and file block size %d",
+            historical_days,
+            endpoints,
+            max_storage_size,
+            max_block_size,
+        )
 
     def _verify_parameters(self, 
             historical_days=5,
@@ -107,40 +180,8 @@ class LocalHistoryService(BusClient):
         if dst_ep not in self.endpoints:
             logging.debug("Filtered EPs")
             return
-
-        # Get current time
-        now = datetime.now()
-
-        # Compute the file name
-        file_suffix = now.strftime("_%d_%m_%Y")
-        target_file = os.path.join(self.file_path, self.file_prefix + file_suffix)
-
-        logging.info("Packet received to be written to %s", target_file)
-
-        # Check if we have created the file
-        file_created = not os.path.exists(target_file)
-
-        with open(target_file, 'a') as cur_file:
-            cur_file.write("%d;%x;%d;%d;%s\n" % (
-                now.timestamp(),
-                src,
-                src_ep,
-                dst_ep,
-                base64.b64encode(data))
-            )
-
-        if file_created:
-            # File was created, check if we have to remove an older one
-            logging.info("Check if a file must be deleted")
-            file_suffix_to_remove = (now - timedelta(days=(self.historical_days + 1))).strftime("_%d_%m_%Y")
-            file_to_remove = os.path.join(self.file_path, self.file_prefix + file_suffix_to_remove)
-
-            try:
-                logging.debug("Trying to remove file %s", file_to_remove)
-                os.remove(file_to_remove)
-            except OSError:
-                logging.debug("No file to remove")
-
+            
+        self.message_queue.put((src, src_ep, dst_ep, data, timestamp, sink_id, dst, travel_time, qos, hop_count))
 
 def str2none(value):
     """ Ensures string to bool conversion """
@@ -241,7 +282,43 @@ if __name__ == "__main__":
         default=os.environ.get("WM_LHS_ENDPOINTS", None),
         help=("Destination endpoints list to keep in history (all if not set)"),
     )
+    parser.add_argument(
+        "--max_storage_size",
+        type=int,
+        default=os.environ.get("WM_MAX_STORAGE_SPACE", 500),
+        help=("Max storage size for historical files [MB]"),
+    )
+
+    parser.add_argument(
+        "--max_block_size",
+        type=int,
+        default=os.environ.get("WM_MAX_BLOCK_SIZE", 20),
+        help=("Max block size for historical files [MB]"),
+    )
+
+    parser.add_argument(
+        "--save_file_interval",
+        type=int,
+        default=os.environ.get("WM_SAVE_INTERVAL", 30),
+        help=("Interval to save historical files [seconds]"),
+    )
+    
+    parser.add_argument(
+        "--mqtt_topic",
+        type=str2none,
+        default=os.environ.get("mqtt_topic", "gw-app/status/{gw_id}/local-history-service"),
+        help=("Topic to publish number of reporting devices within the network and given save interval."),
+    )
+
 
     args = parser.parse_args()
-
-    LocalHistoryService(args.historical_days, args.historical_file_path, endpoints=parse_setting_list(args.endpoints_to_save)).run()
+    
+    LocalHistoryService(
+        historical_days=args.historical_days,
+        file_path=args.historical_file_path,
+        endpoints=parse_setting_list(args.endpoints_to_save),
+        max_block_size=args.max_block_size,
+        max_storage_size=args.max_storage_size,
+        save_interval=args.save_file_interval,
+        mqtt_topic=args.mqtt_topic,
+    ).run()
