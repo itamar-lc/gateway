@@ -91,7 +91,30 @@ class MessagesConsumerThread(Thread):
         It takes as input the current current_files_metadata, and returns the files_metadata
         for the remaining files.
         """
-        pass
+        
+        # First for  which date the file must be deleted 
+        now = datetime.now()
+        logging.info("Check if a file must be deleted")
+        file_suffix_to_remove = (
+            now - timedelta(days=(self.historical_days + 1))
+        ).strftime("_%d_%m_%Y")
+        
+        remaining_files_metadata = []
+
+        # Iterate over the files and remove the ones that correspond to the date to remove
+        for file_info in current_files_metadata:
+            if file_info["datetime"].strftime("_%d_%m_%Y") != file_suffix_to_remove:
+                remaining_files_metadata.append(file_info)
+                
+            # Attempt to remove the file
+            file_to_remove = os.path.join(self.file_path, file_info["filename"])
+            try:
+                logging.debug("Trying to remove file %s", file_to_remove)
+                os.remove(file_to_remove)
+            except OSError as e:
+                logging.error("Error removing file %s: %s", file_to_remove, e)
+        
+        return remaining_files_metadata
 
     def _delete_old_files(self):
         """
