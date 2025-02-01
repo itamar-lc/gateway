@@ -14,18 +14,82 @@ from wirepas_gateway import __pkg_name__
 
 
 class LocalHistoryService(BusClient):
-    def __init__(self, historical_days=5, file_path="", file_prefix="lhs", endpoints=None) -> None:
+    """
+    A class that listens on the Dbus, checks incoming messages,
+    saves the desired ones to a Queue, and starts the consumption
+    of messages in a seperate Thread using MessagesConsumerThread.
+    """
+    def __init__(self, historical_days=5, file_path="", file_prefix="lhs", endpoints=None, max_storage_size=0,max_block_size=0,save_interval=30,max_queue_size=1000,mqtt_topic="") -> None:
 
         super(LocalHistoryService, self).__init__(
             ignored_ep_filter=None
         )
 
+        if not file_path:
+            current_file_path = os.path.abspath(__file__)
+            file_path = str(os.path.dirname(current_file_path))
+            
+        self._verify_parameters(
+            historical_days=historical_days,
+            max_storage_size=max_storage_size,
+            max_block_size=max_block_size,
+            save_interval=save_interval,
+            file_path=file_path,
+            file_prefix=file_prefix,    
+            max_queue_size=max_queue_size
+        )
+        
         self.historical_days = historical_days
         self.file_path = file_path
         self.file_prefix = file_prefix
-        self.endpoints = endpoints
-
+        self.endpoints = endpoints if endpoints else []
+        self.mqtt_topic = mqtt_topic
+        
         logging.info("Local history service started for %d days for EPs: %s", historical_days, endpoints)
+
+    def _verify_parameters(self, 
+            historical_days=5,
+            max_storage_size=0,
+            max_block_size=0,
+            save_interval=30,
+            max_queue_size=1000,
+            file_path="/",
+            file_prefix="lhs",
+        ) -> None:        
+            """
+            Verify that none of the given parameters is invalid.
+            If it is invalid, print an error and exit the program.
+            """
+            error = False
+            if file_path == "":
+                logging.error("No file path provided")
+                error = True 
+                
+            if not os.path.exists(file_path):
+                logging.error("Provided file path does not exist")
+                error = True
+            if not os.path.isdir(file_path):
+                logging.error("Provided file path is not a directory")
+                error = True
+            if max_block_size < 0:
+                logging.error("Max block size must be non-negative. To disable the parameter, please pass 0")
+                error = True
+            if max_storage_size < 0:
+                logging.error("Max storage size must be non-negative. To disable the parameter, please pass 0")
+                error = True
+            if save_interval <= 0:
+                logging.error("Save interval must be positive")
+                error = True
+            if historical_days <= 0:
+                logging.error("Historical days must be positive")
+                error = True
+            if max_queue_size <= 0:
+                logging.error("Max queue size must be non-negative. To disable the parameter, please pass 0")
+                error = True
+            
+            if error:
+                sys.exit(1)
+            
 
     def on_data_received(
         self,
