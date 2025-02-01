@@ -83,7 +83,34 @@ class MessagesConsumerThread(Thread):
         """
         Reads the current files in the log directory and returns their metadata.
         """
-        pass
+        log_files_info = []
+        log_files = [
+            f for f in os.listdir(self.file_path) if f.startswith(self.file_prefix)
+        ]
+
+        for log_file in log_files:
+            full_path = os.path.join(self.file_path, log_file)
+            if os.path.isfile(full_path):
+                try:
+                    # Example filename: lhs_23_07_2024_0
+                    parts = log_file.split("_")
+                    date_str = "_".join(parts[1:4])
+                    file_date = datetime.strptime(date_str, "%d_%m_%Y")
+                    file_index = int(parts[4])
+                    file_size = os.path.getsize(full_path) / (1024 * 1024)
+
+                    log_files_info.append(
+                        {
+                            "filename": log_file,
+                            "datetime": file_date,
+                            "index": file_index,
+                            "size": file_size,
+                        }
+                    )
+                except (IndexError, ValueError) as e:
+                    logging.error(f"Error parsing file name {log_file}: {e}")
+
+        return log_files_info
     
     def _delete_outdated_day(self, current_files_metadata):
         """
