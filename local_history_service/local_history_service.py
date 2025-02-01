@@ -365,6 +365,10 @@ class LocalHistoryService(BusClient):
         hop_count,
         data,
     ):
+        """
+        Saves the recieved message to a local Queue. 
+        Note, that all messages in a gateway are recieved together, and saved to the same file.
+        """
         if dst_ep not in self.endpoints:
             logging.debug("Filtered EPs")
             return
