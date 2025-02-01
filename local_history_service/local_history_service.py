@@ -50,6 +50,21 @@ class MessagesConsumerThread(Thread):
         self.mqtt_wrapper.start()
         self.last_file_name = ""
 
+
+    def _on_connect(self):
+            """
+            Callback used to be informed when the MQTT wrapper has connected
+            """
+            logging.info("MQTT wrapper connected")
+    
+        def _on_mqtt_wrapper_termination_cb(self):
+            """
+            Callback used to be informed when the MQTT wrapper has exited
+            It is not a normal situation and better to exit the program
+            to have a change to restart from a clean session
+            """
+            logging.error("MQTT wrapper ends. Terminate the program")
+
 class LocalHistoryService(BusClient):
     """
     A class that listens on the Dbus, checks incoming messages,
