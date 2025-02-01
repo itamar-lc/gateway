@@ -78,6 +78,20 @@ class MessagesConsumerThread(Thread):
         while not self.message_queue.empty():
             output.append(self.message_queue.get())
         return output
+        
+    def _get_log_files_info(self):
+        """
+        Reads the current files in the log directory and returns their metadata.
+        """
+        pass
+    
+    def _delete_outdated_day(self, current_files_metadata):
+        """
+        Deleting the files corresponding to the day that is older than the historical_days.
+        It takes as input the current current_files_metadata, and returns the files_metadata
+        for the remaining files.
+        """
+        pass
 
     def _delete_old_files(self):
         """
@@ -85,7 +99,30 @@ class MessagesConsumerThread(Thread):
             - the files are older than the historical_days parameter
             - the total size of the files exceeds the max_storage_size parameter
         """
-        pass
+        # First get the current saved files, and delete the outdated one. 
+        saved_files_metadata = self._get_log_files_info()
+        saved_files_metadata = self._delete_outdated_day(saved_files_metadata)
+        
+        # Calculate the current total saved file sizes. If it is over bound, delete
+        # as much data as needed to be under the bound, starting with the oldest files
+        # first.
+        total_sizes = sum([file_info["size"] for file_info in saved_files_metadata])
+        
+        if total_sizes > self.max_storage_size:
+            # Delete the files starting from the oldest one. We sort the files by the
+            # timestamp and the index to ensure that the oldest files are deleted first.
+            logging.info("Total size of files is %d bytes", total_sizes)
+            saved_files_metadata.sort(key=lambda x: x["datetime"].timestamp() + x["index"])
+            
+            while total_sizes > self.max_storage_size:
+                file_info = saved_files_metadata.pop(0)
+                
+                logging.info("Removing file %s", file_info["filename"])
+                file_path = os.path.join(self.file_path, file_info["filename"])
+                
+                os.remove(file_path)
+                total_sizes -= file_info["size"]
+
             
     def _send_device_number_message(self, messages):
         """
