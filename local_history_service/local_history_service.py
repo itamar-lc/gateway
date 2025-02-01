@@ -91,7 +91,17 @@ class MessagesConsumerThread(Thread):
         """
         Sends a message via mqtt containing the number of devices
         """
-        pass
+        logging.info(f"Sending device number message to topic {self.mqtt_topic}")
+        
+        if self.mqtt_wrapper is None:
+            return
+            
+        number_of_devices = len({src for src, _, _, _, _ in messages})
+        
+        logging.info(f"Number of devices: {number_of_devices}")
+        payload = dumps({"devices": number_of_devices})
+        self.mqtt_wrapper.publish(self.mqtt_topic, payload, qos=1, retain=True)
+
         
     def _make_file_name(self, proposed_file_name):
         """
