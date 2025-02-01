@@ -190,6 +190,16 @@ class MessagesConsumerThread(Thread):
         self.mqtt_wrapper.publish(self.mqtt_topic, payload, qos=1, retain=True)
 
         
+    def _is_file_size_reached(self, file_path):
+        try:
+            if os.path.exists(file_path):
+                size = os.path.getsize(file_path) / (1024 * 1024)
+                return size >= self.max_storage_size
+        except OSError as e:
+            logging.error(f"Error checking file size: {e}")
+        return False
+
+    
     def _make_file_name(self, proposed_file_name):
         """
         Makes file name unique by adding a number to the end of the file name
