@@ -70,11 +70,66 @@ class MessagesConsumerThread(Thread):
             self._save_messages_to_file_and_delete_outdated_messages()
             sleep(self.save_interval)
 
+    def _dump_queue_to_list(self):
+        """
+        Reads all messages from the queue and returns them as a list.
+        """
+        output = []
+        while not self.message_queue.empty():
+            output.append(self.message_queue.get())
+        return output
+
+    def _delete_old_files(self):
+        """
+        Deletes old files under the following two conditions:
+            - the files are older than the historical_days parameter
+            - the total size of the files exceeds the max_storage_size parameter
+        """
+        pass
+            
+    def _send_device_number_message(self, messages):
+        """
+        Sends a message via mqtt containing the number of devices
+        """
+        pass
+        
+    def _make_file_name(self, proposed_file_name):
+        """
+        Makes file name unique by adding a number to the end of the file name
+        """
+        if self._is_file_size_reached(
+            proposed_file_name + f"_{self.current_file_index}"
+        ):
+            self.current_file_index += 1
+        return proposed_file_name + f"_{self.current_file_index}"
+
 
     def _save_messages_to_file_and_delete_outdated_messages(self):
         """
         Save messages to a file and delete outdated messages.
         """
+        self._delete_old_files()
+
+        messages = self._dump_queue_to_list()
+        self._send_device_number_message(messages)
+        
+        if not messages:
+            return
+            
+        timestamp = messages[-1][4]
+
+        # Compute the file name
+        file_suffix = datetime.fromtimestamp(timestamp // 1000).strftime("_%d_%m_%Y")
+        target_file = os.path.join(self.file_path, self.file_prefix + file_suffix)
+        
+        target_file = self._make_file_name(target_file)
+
+        with open(target_file, "a") as cur_file:
+            for src, src_ep, dst_ep, data, timestamp, sink_id, dst, travel_time, qos, hop_count  in messages:
+                cur_file.write(
+                    "%d;%x;%d;%d;%s\n"
+                    % (timestamp, src, src_ep, dst_ep, base64.b64encode(data), sink_id, dst, travel_time, qos, hop_count)
+                )
 
 class LocalHistoryService(BusClient):
     """
